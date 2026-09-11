@@ -1,0 +1,64 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract DistributePro {
+    address public admin;
+    uint public fee = 2; // Fee in percentage (e.g., 2%)
+
+    event FeeChanged(uint oldFee, uint newFee);
+    event AdminChanged(address indexed oldAdmin, address indexed newAdmin);
+    event FundsDistributed(address indexed sender, uint totalAmount, uint feeAmount);
+
+    modifier onlyAdmin() {
+        require(msg.sender == admin, "Admin only");
+        _;
+    }
+
+    constructor() {
+        admin = msg.sender;
+    }
+
+    function changeFee(uint _newFee) public onlyAdmin {
+        require(_newFee <= 100, "Fee must be <= 100%");
+        uint oldFee = fee;
+        fee = _newFee;
+        emit FeeChanged(oldFee, _newFee);
+    }
+
+    function changeAdmin(address newAdmin) public onlyAdmin {
+        require(newAdmin != address(0), "Invalid address");
+        emit AdminChanged(admin, newAdmin);
+        admin = newAdmin;
+    }
+
+    function validateDistribution(uint[] memory percentages) internal pure returns (bool) {
+        uint totalPercentage = 0;
+        for (uint i = 0; i < percentages.length; i++) {
+            totalPercentage += percentages[i];
+        }
+        return totalPercentage == 10000; // 100% in basis points
+    }
+
+    function process(address[] memory recipients, uint[] memory percentages) public payable {
+        require(recipients.length == percentages.length, "Array length mismatch");
+        require(validateDistribution(percentages), "Percentages do not sum to 100%");
+
+        uint feeAmount = (msg.value * fee) / 100;
+        uint netAmount = msg.value - feeAmount;
+
+        // Transfer fee to admin
+        payable(admin).transfer(feeAmount);
+
+        for (uint i = 0; i < recipients.length; i++) {
+            uint amount = (netAmount * percentages[i]) / 10000; // Basis points calculation
+            payable(recipients[i]).transfer(amount);
+        }
+
+        emit FundsDistributed(msg.sender, msg.value, feeAmount);
+    }
+
+    // Receive Ether
+    receive() external payable {}
+
+    fallback() external payable {}
+}

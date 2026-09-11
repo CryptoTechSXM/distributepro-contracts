@@ -1,0 +1,25 @@
+node_modules
+.env
+.env.*
+
+# Hardhat files
+/cache
+/artifacts
+
+# TypeChain files
+/typechain
+/typechain-types
+
+# solidity-coverage files
+/coverage
+/coverage.json
+
+# Hardhat Ignition default folder for deployments against a local node
+ignition/deployments/chain-31337
+
+# Session scratch — screenshots and working files, not part of the project
+/Claude outputs/
+
+# NOTE: deployments/ is deliberately NOT ignored. Those records are the only
+# durable proof of how each deployed bytecode was produced, and publishing them
+# is the substitute for explorer verification. See docs/ brief section 20.

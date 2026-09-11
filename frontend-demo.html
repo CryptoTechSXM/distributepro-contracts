@@ -1,0 +1,156 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DistributePro Frontend Demo</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.6.0/dist/ethers.min.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      background: #f2f5f9;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .card {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      width: 400px;
+    }
+    button {
+      background-color: #004aad;
+      color: white;
+      padding: 10px;
+      width: 100%;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button:hover { background-color: #003680; }
+    input, textarea {
+      width: 100%;
+      padding: 10px;
+      margin-top: 6px;
+      margin-bottom: 15px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      font-size: 14px;
+    }
+    .status {
+      text-align: center;
+      margin-top: 10px;
+      font-weight: 600;
+    }
+    .success { color: green; }
+    .error { color: red; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <button id="connectWallet">🔗 Connect Wallet</button>
+    <div id="walletAddress" class="status"></div>
+    <hr>
+
+    <label>Contract Address:</label>
+    <input type="text" id="contractAddress" placeholder="0x..." />
+
+    <label>Recipients (comma separated):</label>
+    <textarea id="recipients" placeholder="0xabc...,0xdef..."></textarea>
+
+    <label>Amounts (in ETH, comma separated):</label>
+    <textarea id="amounts" placeholder="0.5,0.5"></textarea>
+
+    <button id="distributeBtn">🚀 Distribute ETH</button>
+
+    <div id="status" class="status"></div>
+  </div>
+
+  <script>
+    let provider, signer, contract;
+
+    async function connectWallet() {
+      try {
+        if (!window.ethereum) {
+          alert("Please install MetaMask first!");
+          return;
+        }
+
+        provider = new ethers.BrowserProvider(window.ethereum);
+        await provider.send("eth_requestAccounts", []);
+        signer = await provider.getSigner();
+        const address = await signer.getAddress();
+
+        const network = await provider.getNetwork();
+        if (network.chainId !== 31337n) {
+          document.getElementById("status").innerHTML =
+            "<span class='error'>⚠️ Please switch to Hardhat localhost (Chain ID 31337)</span>";
+          return;
+        }
+
+        document.getElementById("walletAddress").innerHTML =
+          "✅ Connected: " + address.slice(0, 10) + "...";
+        document.getElementById("status").innerHTML =
+          "<span class='success'>Connected to Hardhat Localhost</span>";
+
+      } catch (err) {
+        console.error("Wallet connection failed:", err);
+        document.getElementById("status").innerHTML =
+          "<span class='error'>❌ Wallet connection failed</span>";
+      }
+    }
+
+    async function distributeETH() {
+      try {
+        const contractAddress = document.getElementById("contractAddress").value.trim();
+        const recipients = document.getElementById("recipients").value.split(",").map(r => r.trim());
+        const amounts = document.getElementById("amounts").value.split(",").map(a => a.trim());
+
+        if (!contractAddress || recipients.length === 0 || amounts.length === 0) {
+          alert("Please fill in all fields!");
+          return;
+        }
+
+        const abi = [
+          "function processETH(address[] calldata recipients, uint256[] calldata amounts) payable external"
+        ];
+
+        contract = new ethers.Contract(contractAddress, abi, signer);
+
+        // Convert ETH to wei
+        const parsedAmounts = amounts.map(a => ethers.parseEther(a));
+
+        const total = parsedAmounts.reduce((a, b) => a + b, 0n);
+
+        const balance = await provider.getBalance(await signer.getAddress());
+        if (balance < total) {
+          alert("⚠️ Insufficient funds in wallet!");
+          return;
+        }
+
+        document.getElementById("status").innerHTML =
+          "<span>⏳ Sending transaction...</span>";
+
+        const tx = await contract.processETH(recipients, parsedAmounts, { value: total });
+        await tx.wait();
+
+        document.getElementById("status").innerHTML =
+          "<span class='success'>✅ Transaction successful! Hash: " + tx.hash.slice(0, 10) + "...</span>";
+
+      } catch (err) {
+        console.error("Error distributing ETH:", err);
+        document.getElementById("status").innerHTML =
+          "<span class='error'>❌ Transaction failed: " + (err.reason || err.message) + "</span>";
+      }
+    }
+
+    document.getElementById("connectWallet").addEventListener("click", connectWallet);
+    document.getElementById("distributeBtn").addEventListener("click", distributeETH);
+  </script>
+</body>
+</html>

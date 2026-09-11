@@ -1,0 +1,29 @@
+{
+  "contract": "DistributeProV3",
+  "network": "btc20",
+  "chainId": 963,
+  "address": "0x3092F4b1E5D71ED872E06BC1A066781c33c60390",
+  "deployer": "0x4B05184738df5F5e13c6EEEf3b1Ebe079b772372",
+  "houseRecipient": "0x4B05184738df5F5e13c6EEEf3b1Ebe079b772372",
+  "maxRecipients": 250,
+  "maxRecipientsLimit": 500,
+  "txHash": "0x04d434ceb6275821a3aff9caf5b8f7a5395bcc91ca77bcf21a17c8f39a62b7c6",
+  "blockNumber": 30478178,
+  "gasUsed": "1693456",
+  "gasPriceWei": "1000000000",
+  "txType": 0,
+  "constructorArgs": [
+    "0x4B05184738df5F5e13c6EEEf3b1Ebe079b772372",
+    250
+  ],
+  "compiler": {
+    "version": "0.8.20",
+    "optimizer": {
+      "enabled": true,
+      "runs": 200
+    },
+    "viaIR": false,
+    "evmVersion": "berlin"
+  },
+  "deployedAt": "2026-09-11T21:42:30.379Z"
+}

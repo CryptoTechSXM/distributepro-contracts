@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: MIT
+
+pragma solidity ^0.8.0;
+
+contract sendmultiple {
+    address public admin;
+    uint public fee = 2;
+    --
+    constructor(){
+        admin = msg.sender;
+    }
+    
+
+    modifier onlyAdmin {
+        require(msg.sender==admin,"admin only");
+        _;
+    }
+
+    function changeFee(uint _new) public onlyAdmin {
+        fee=_new    ;
+    }
+
+    function changeAdmin(address user) public onlyAdmin {
+        admin = user;
+    }
+
+    function checkSum(uint[] memory percentage, uint amount) public view returns(bool check){
+        uint sum =0 ;
+        for(uint i = 0 ; i < percentage.length; i++){
+            sum += percentage[i]/10000; 
+        }
+
+        uint sumwithFee = sum + sum * fee /100;
+
+        check = amount == sumwithFee;    
+    }
+
+
+    function process(address[] memory addresses, uint[] memory percentages) public payable {
+//       require(checkSum(percentages, (100+fee)),"value does not match with total");
+        payable(admin).transfer(msg.value * fee / (100+fee));
+        
+        for(uint i = 0 ; i < percentages.length; i ++){
+            payable(addresses[i]).transfer(msg.value * percentages[i]/1020000);
+        }
+    }
+
+
+
+}
+
+//["0xEc29164D68c4992cEdd1D386118A47143fdcF142","0xEc29164D68c4992cEdd1D386118A47143fdcF142"]
+
+//[500000,500000]

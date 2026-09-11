@@ -1,0 +1,23 @@
+{
+  "ethereum": {
+    "error": "hre.changeNetwork is not a function"
+  },
+  "sepolia": {
+    "error": "hre.changeNetwork is not a function"
+  },
+  "bsc": {
+    "error": "hre.changeNetwork is not a function"
+  },
+  "polygon": {
+    "error": "hre.changeNetwork is not a function"
+  },
+  "base": {
+    "error": "hre.changeNetwork is not a function"
+  },
+  "avalanche": {
+    "error": "hre.changeNetwork is not a function"
+  },
+  "btc20": {
+    "error": "hre.changeNetwork is not a function"
+  }
+}

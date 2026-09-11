@@ -1,0 +1,15 @@
+# Normalise line endings so diffs stay readable.
+# Files written from the Cowork session use LF; git on Windows would otherwise
+# rewrite them to CRLF on checkout and every future edit would show as a
+# whole-file change. Pin LF in the repository for everything textual.
+* text=auto eol=lf
+
+# Solidity and JS are always text
+*.sol text eol=lf
+*.js  text eol=lf
+*.json text eol=lf
+*.md  text eol=lf
+
+# Images are binary
+*.jpg binary
+*.png binary
