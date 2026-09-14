@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
@@ -25,11 +25,30 @@ contract MockFeeOnTransfer is ERC20 {
         _mint(msg.sender, initialSupply);
     }
 
-    function _transfer(address from, address to, uint256 amount) internal override {
-        uint256 tax = (amount * feeBps) / 10_000;
-        if (tax > 0) {
-            super._transfer(from, SINK, tax);
+    /**
+     * ⛔⛔ REWRITTEN FOR OPENZEPPELIN v5, 2026-09-13. This used to override
+     * `_transfer`. In v5 `_transfer` is `internal` but NO LONGER `virtual`
+     * — checked in the published v5.6.1 ERC20.sol, not recalled — so that
+     * override does not compile at all. v5's single extension point is
+     * `_update`, which IS virtual.
+     *
+     * ⚠️ THE TWO ARE NOT INTERCHANGEABLE, AND GETTING THIS WRONG WOULD HAVE
+     * BEEN SILENT. `_transfer` only ever saw user transfers. `_update` is
+     * ALSO called by `_mint` and `_burn`, so a naive port would tax the
+     * constructor's own mint and every balance in the D6 test would start
+     * 1% short — a mock that lies about the thing it exists to reproduce.
+     * The from/to zero-address guard below is what keeps the behaviour
+     * identical to the v4 version: mints and burns pass through untaxed.
+     */
+    function _update(address from, address to, uint256 value) internal override {
+        if (from == address(0) || to == address(0)) {
+            super._update(from, to, value); // mint or burn — never taxed
+            return;
         }
-        super._transfer(from, to, amount - tax);
+        uint256 tax = (value * feeBps) / 10_000;
+        if (tax > 0) {
+            super._update(from, SINK, tax);
+        }
+        super._update(from, to, value - tax);
     }
 }

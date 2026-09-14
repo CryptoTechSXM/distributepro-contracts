@@ -47,7 +47,10 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
-// Divisors of 10000, so shares split exactly with no remainder games.
+// Divisors of 1,000,000 (V3.1's SHARE_DENOMINATOR), so shares split exactly
+// with no remainder games. ⛔ 10,000 was the V3.0 figure — if this is ever put
+// back, every size below still divides it, so the suite would go green on the
+// wrong denominator. The contract's own revert is what catches it, not this line.
 const SIZES = [1, 10, 50, 100, 200, 250];
 
 // Block gas limits worth planning against.
@@ -62,7 +65,7 @@ const CHAINS = [
 const SAFETY = 0.5;
 
 function sharesFor(n) {
-  const each = 10000 / n;
+  const each = 1_000_000 / n;
   return Array(n).fill(each);
 }
 

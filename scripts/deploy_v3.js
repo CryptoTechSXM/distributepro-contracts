@@ -25,7 +25,7 @@
 //   - deploy to a chain whose live chainId does not match what this script
 //     expects for that network name
 //   - deploy to a chain it has no maxRecipients entry for
-//   - deploy to a MAINNET without CONFIRM=yes
+//   - deploy to a MAINNET without CONFIRM="deploy-v3" (see ARM_PHRASE)
 //   - deploy with a balance too small to pay for it
 //
 // Every one of those is checked BEFORE a transaction is signed.
@@ -33,6 +33,7 @@
 const fs = require("fs");
 const path = require("path");
 const hre = require("hardhat");
+const { reportEnv, armed } = require("./utils/session_env");
 const { ethers } = hre;
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -63,6 +64,31 @@ const { ethers } = hre;
 // provider quietly failing over, is how a contract ends up on a chain nobody
 // meant to touch. Checked live against eth_chainId before anything is signed.
 // ─────────────────────────────────────────────────────────────────────────
+// ⛔⛔ THE ARMING PHRASE, DEFINED ONCE — 2026-09-13, and here is why it is a
+// constant instead of a string typed in two places.
+//
+// Session 4 gave every money-spending script its own confirmation phrase
+// (brief §20.5), replacing a generic CONFIRM="yes" that a stale PowerShell
+// variable could satisfy. The GATE below was updated correctly.
+//
+// ⛔ THE INSTRUCTION PRINTED UNDERNEATH IT WAS NOT. It kept telling the
+// reader to run `$env:CONFIRM="yes"` — the dead phrase — for a full day,
+// ON THE ONE SCRIPT §20.5 CALLED "the one that mattered", the script that
+// puts a new contract on a mainnet. Copying that line would have produced
+// another dry run, and the lesson taken away would have been "the CONFIRM
+// variable does not work", which is how people reach for something worse.
+//
+// ▶ Found 2026-09-13 by READING THE SCREEN of a real dry run rather than
+// trusting that the fix had covered everything. Same family as the site
+// copy that still said "still being built" the day after it shipped, and
+// as reportEnv announcing .env values as shell leftovers.
+//
+// ▶ THE FIX IS THE SHAPE, NOT THE STRING: the gate and every printed
+// command now read this one constant, so they cannot disagree again.
+// (Checked the same day: testrun_v3, testrun_token_v3, set_partner and
+// measure_token_overshoot all print their own phrases correctly.)
+const ARM_PHRASE = "deploy-v3";
+
 const CHAINS = {
   btc20: {
     expectedChainId: 963,
@@ -153,6 +179,9 @@ function fail(msg) {
 }
 
 async function main() {
+  // ⛔ Say what this run inherited BEFORE it says what it decided.
+  reportEnv(["CONFIRM", "HOUSE_RECIPIENT", "EXPECTED_DEPLOYER"]);
+
   const netName = hre.network.name;
 
   say("");
@@ -293,7 +322,7 @@ async function main() {
   // dry run). An insufficient balance is only fatal when we are actually
   // about to deploy — it is enforced further down, past the mainnet gate.
   //
-  // WHY: running this script against a mainnet WITHOUT CONFIRM=yes is a free,
+  // WHY: running this script against a mainnet WITHOUT CONFIRM=deploy-v3 is a free,
   // read-only dry run — it reaches the gate and stops without signing
   // anything. That dry run is the only way to learn, before spending, whether
   // the real node accepts this bytecode (the estimate above is the proof) and
@@ -346,7 +375,7 @@ async function main() {
 
   // ── 7. Mainnet gate. ───────────────────────────────────────────────────
   say("  [6/7] checking mainnet confirmation ...");
-  if (cfg.isMainnet && process.env.CONFIRM !== "yes") {
+  if (cfg.isMainnet && !armed("CONFIRM", ARM_PHRASE)) {
     say("");
     say(line());
     say(`  "${netName}" is a MAINNET. Real money.`);
@@ -357,11 +386,17 @@ async function main() {
     say(`     deployer          ${deployer.address}`);
     say(`     estimated cost    ${ethers.formatEther(cost)}`);
     say("");
-    say("  Read those four lines. If they are right, run again with CONFIRM=yes:");
+    say(`  Read those four lines. If they are right, run again with CONFIRM="${ARM_PHRASE}".`);
     say("");
-    say(`     CONFIRM=yes npx hardhat run scripts/deploy_v3.js --network ${netName}`);
+    say("  PowerShell (this is the one to copy on Windows):");
+    say(`     $env:CONFIRM="${ARM_PHRASE}"; npx hardhat run scripts/deploy_v3.js --network ${netName}`);
     say("");
-    say("  (PowerShell:  $env:CONFIRM=\"yes\"; npx hardhat run scripts/deploy_v3.js --network " + netName + ")");
+    say("  bash / sh:");
+    say(`     CONFIRM=${ARM_PHRASE} npx hardhat run scripts/deploy_v3.js --network ${netName}`);
+    say("");
+    say(`  ⚠️ Afterwards:  $env:CONFIRM=""   — or just close the window. In`);
+    say(`     PowerShell it stays set until you do, and this script is the one`);
+    say(`     that deploys a NEW mainnet contract.`);
     say(line());
     say("");
     process.exit(0);
@@ -410,15 +445,28 @@ async function main() {
   const onChainOwner = await contract.owner();
   const onChainLimit = await contract.MAX_RECIPIENTS_LIMIT();
   const onChainPaused = await contract.paused();
+  // ⛔ V3.1: read the SHARE DENOMINATOR back too. It is not a constructor
+  // argument, so nothing else would ever catch a wrong one — and it is the
+  // single number that decides what every share list on this chain MEANS.
+  // A V3.0 address and a V3.1 address are indistinguishable without it.
+  const onChainShareDenom = await contract.SHARE_DENOMINATOR();
 
   say(`     houseRecipient        ${onChainHouse}` + (onChainHouse === houseAddr ? "  ✓" : "  ⛔ MISMATCH"));
   say(`     maxRecipients         ${onChainMax}` + (Number(onChainMax) === cfg.maxRecipients ? "  ✓" : "  ⛔ MISMATCH"));
   say(`     owner                 ${onChainOwner}` + (onChainOwner === deployer.address ? "  ✓" : "  ⛔ MISMATCH"));
   say(`     MAX_RECIPIENTS_LIMIT  ${onChainLimit}`);
   say(`     paused                ${onChainPaused}`);
+  say(`     SHARE_DENOMINATOR     ${onChainShareDenom.toLocaleString("en-US")}` +
+      (onChainShareDenom === 1000000n
+        ? "  ✓ V3.1 — shares to four decimal places"
+        : "  ⛔ NOT 1,000,000 — this is not the V3.1 contract"));
   say("");
 
-  if (onChainHouse !== houseAddr || Number(onChainMax) !== cfg.maxRecipients) {
+  if (
+    onChainHouse !== houseAddr ||
+    Number(onChainMax) !== cfg.maxRecipients ||
+    onChainShareDenom !== 1000000n
+  ) {
     say("  ⛔ The deployed state does not match what was requested. Do not use");
     say("     this address. Investigate before anything else.");
     say("");
@@ -441,6 +489,10 @@ async function main() {
     houseRecipient: onChainHouse,
     maxRecipients: Number(onChainMax),
     maxRecipientsLimit: Number(onChainLimit),
+    // V3.1. Recorded because every share list sent to this address is
+    // meaningless without it, and because the frontend and the run scripts
+    // both read it back rather than assuming.
+    shareDenominator: onChainShareDenom.toString(),
     txHash: receipt.hash,
     blockNumber: receipt.blockNumber,
     gasUsed: receipt.gasUsed.toString(),
@@ -494,12 +546,44 @@ async function main() {
   // the script exits. A nonsense command in a NEXT STEPS block is a command
   // somebody eventually pastes.
   if (cfg.explorer) {
-    say("  1. Verify the source on the explorer:");
-    say("");
-    say(`       npx hardhat verify --network ${netName} ${address} ${houseAddr} ${cfg.maxRecipients}`);
-    say("");
-    say(`     Then check it here:  ${cfg.explorer}/address/${address}`);
-    say("");
+    if (netName === "btc20") {
+      // ⛔⛔ DO NOT PRINT A VERIFY COMMAND FOR BTC20. It cannot work, and
+      // this script told the owner to run it anyway for two days after the
+      // cause was measured — the fourth stale-instruction defect found on
+      // 2026-09-13, all of the same family: a hand-written line that stopped
+      // being true when the thing it described changed.
+      //
+      // MEASURED (brief §20.1): scan.bitcoincode.technology's own
+      // verification form has ZERO options in its compiler dropdown. An
+      // explorer with no compilers cannot recompile source, so it cannot
+      // verify at ANY solc version. Three deploys, ~0.005 BTCC, were spent
+      // testing wrong theories before anyone simply LOADED THE FORM.
+      say("  1. ⛔ Source verification is NOT POSSIBLE on this chain today.");
+      say("");
+      say("     scan.bitcoincode.technology has no compilers installed — its");
+      say("     verification form's compiler list is empty — so it cannot");
+      say("     recompile source and cannot verify at any solc version.");
+      say("     Measured directly; see docs §20.1. Do NOT run hardhat verify");
+      say("     here and do NOT redeploy hoping a different setting helps.");
+      say("");
+      say("     ▶ Re-check ONLY by loading that form and seeing a non-empty");
+      say("       compiler list. scripts/probe_verify.js alone is not enough.");
+      say("");
+      say(`     The address is still browsable:  ${cfg.explorer}/address/${address}`);
+      say("");
+    } else {
+      say("  1. Verify the source on the explorer:");
+      say("");
+      say(`       npx hardhat verify --network ${netName} ${address} ${houseAddr} ${cfg.maxRecipients}`);
+      say("");
+      say(`     Then check it here:  ${cfg.explorer}/address/${address}`);
+      say("");
+      say("     ⚠️ VERIFYING PUBLISHES THE FULL SOURCE to anyone who visits.");
+      say("     The owner's 2026-09-12 decision was to keep the source");
+      say("     PRIVATE. Both cannot hold on this chain — that is his call to");
+      say("     make knowingly, BEFORE running the command above.");
+      say("");
+    }
   } else {
     say("  1. No explorer for this network — nothing to verify.");
     say("     This chain is a rehearsal target only; the contract disappears");

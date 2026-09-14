@@ -1,37 +1,58 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.20;
 
-// ⛔ SOLC PINNED TO 0.8.19, NOT 0.8.20 — AND THE REASON IS MEASURED.
+// ⛔⛔ SOLC 0.8.20 — RAISED FROM 0.8.19 ON 2026-09-13 (V3.1). THE REASON THE
+// OLD PIN EXISTED IS MEASURED DEAD, AND THAT IS WHY THIS IS ALLOWED.
 //
-// The BTC20 explorer (scan.bitcoincode.technology, an old Blockscout) REFUSED
-// to verify this contract twice under 0.8.20 — once with viaIR and once
-// without — always "Fail - Unable to verify".
+// THE OLD PIN, AND WHY IT LOOKED RIGHT. On 2026-09-11 the BTC20 explorer
+// refused to verify this contract under 0.8.20, while the owner's LIVE V1
+// contract IS verified there under v0.8.19+commit.7dd6d404. The whole repo
+// was dropped to 0.8.19 to match. ⚠️ That inference — "the explorer's
+// compiler list stops one version short of ours" — was a HYPOTHESIS, and the
+// redeploy that tested it failed identically.
 //
-// scripts/probe_verify.js then measured the decisive fact: the owner's LIVE V1
-// contract IS verified on that explorer, under v0.8.19+commit.7dd6d404. So
-// verification works there; the explorer's compiler list simply appears to
-// stop at 0.8.19. One version short.
+// WHAT ACTUALLY SETTLED IT (brief §20.1): the explorer's own verification
+// form was loaded and read. Its compiler dropdown is EMPTY — zero options in
+// the DOM, still zero after waiting for an async load. An explorer with no
+// compilers cannot recompile source, so it cannot verify anything at ANY
+// version. V1's verified status is a relic from when it still had compilers.
+// ▶ The pin bought nothing. It never had.
 //
-// That also retires the viaIR theory. viaIR was never the cause — two
-// deployments, with and without it, failed identically. The redeploy that
-// tested it was not wasted (it proved viaIR is unnecessary: 73 tests pass
-// without it) but the verification reasoning behind it was wrong.
+// WHY IT MOVED NOW: OpenZeppelin v5 requires ^0.8.20 — read off the published
+// v5.6.1 source, not recalled. And the raise is free here: 0.8.20's headline
+// change is defaulting the EVM target to Shanghai, which hardhat.config.js
+// overrides to berlin regardless. ⛔ Better than free — deploys #1 and #2 in
+// the ledger were BUILT AT 0.8.20 AND LANDED ON BTC20 MAINNET, so this exact
+// compiler-and-chain combination is already proven, not merely expected.
 //
-// ⚠️ DO NOT RAISE THIS PRAGMA back to ^0.8.20 without re-measuring what the
-// explorer supports. Nothing here needs 0.8.20: its only notable change was
-// defaulting the EVM target to Shanghai, which this repo overrides to berlin
-// anyway (see hardhat.config.js), and OpenZeppelin 4.9 requires only ^0.8.0.
+// ⚠️ DO NOT RAISE IT FURTHER. 0.8.20 is the minimum OZ v5 accepts; anything
+// newer buys nothing measured, and every version costs a build cycle to test.
 
-// NOTE ON OPENZEPPELIN VERSION
-// This repo has OZ ^4.9.6 installed, so these are the v4 import paths
-// (security/ReentrancyGuard.sol, security/Pausable.sol) and Ownable takes no
-// constructor argument. In OZ v5 both files move to utils/ and Ownable
-// requires Ownable(initialOwner). Migrating to v5 is a deliberate, separate
-// step — see docs/V3.0-AUDIT-AND-DESIGN-BRIEF.md section 2.10. Do not let a
-// stray `npm update` make that decision.
+// ⛔ OPENZEPPELIN v5.6.1 — MIGRATED 2026-09-13 (V3.1). This WAS OZ ^4.9.6.
+// package.json pins the version EXACTLY, with no caret, so a stray
+// `npm install` cannot move it: the v4 -> v5 move is a compile-breaking
+// change and it should only ever happen on purpose.
+//
+// What v5 changed here, all three verified against the published v5.6.1
+// source rather than recalled:
+//   1. ReentrancyGuard and Pausable moved  security/  ->  utils/
+//   2. Ownable takes an explicit initialOwner. v4's no-arg constructor set
+//      the owner to _msgSender(), so Ownable(_msgSender()) is the exact
+//      equivalent and the deployer is still the owner. Nothing about who
+//      controls this contract changed.
+//   3. Ownable and Pausable now revert with CUSTOM ERRORS
+//      (OwnableUnauthorizedAccount, EnforcedPause) instead of the old
+//      "Ownable: caller is not the owner" strings. ✅ Checked: no test or
+//      script in this repo asserts those strings, so nothing silently
+//      stopped testing what it claims to test.
+//
+// ⚠️ Why bother at all: nothing was wrong with v4. An outside auditor will
+// expect v5, v4 is in security-fix-only maintenance, and bundling it with
+// the V3.1 denominator change means ONE redeploy instead of two — this is
+// the last moment it is cheap, because six more chains come next.
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -61,8 +82,11 @@ import "./FeeSchedule.sol";
  * ─────────────────────────────────────────────────────────────────────────
  * HOW IT WORKS
  *
- *   1. You give a list of recipients and their shares in basis points.
- *      Shares must total exactly 10000 (= 100%).
+ *   1. You give a list of recipients and their shares in MILLIONTHS.
+ *      Shares must total exactly 1,000,000 (= 100%), so one unit is 0.0001%
+ *      and any percentage to four decimal places is expressible exactly.
+ *      ⛔ This is NOT basis points, and it is NOT the same denominator the
+ *      FEE uses — see the note on SHARE_DENOMINATOR below.
  *   2. You give the payout — the amount the recipients collectively receive.
  *   3. The fee is charged ON TOP: between 2% and 5%, split with a partner
  *      per FeeSchedule.sol. Paying out 100 at the 2% floor means sending 102.
@@ -92,7 +116,38 @@ import "./FeeSchedule.sol";
 contract DistributeProV3 is Ownable, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
-    uint256 public constant BPS_DENOMINATOR = 10_000;
+    /**
+     * ⛔⛔ V3.1, 2026-09-13 — THE SHARE DENOMINATOR IS 1,000,000, NOT 10,000.
+     * AND IT IS NOT THE SAME NUMBER AS THE FEE DENOMINATOR. READ THIS.
+     *
+     * There are TWO percentage systems in this project and V3.0 gave them the
+     * SAME NAME — `BPS_DENOMINATOR` here, and `BPS_DENOMINATOR` in
+     * FeeSchedule.sol. They never meet in the code, so V3.0 was correct; but
+     * one confident search-and-replace by a future session would have made the
+     * fee 100x too small while every test still passed. That is defect 2.1's
+     * family exactly: one name, two unit systems. So they are now named apart.
+     *
+     *   SHARE space (here)            1,000,000 = 100%   1 unit = 0.0001%
+     *   FEE space (FeeSchedule)          10,000 = 100%   1 unit = 0.01%
+     *
+     * WHY THE SHARE SPACE GOT FINER. [owner, 2026-09-12] "the percentage is
+     * only 2 characters after the decimal point and i would prefer up to 4 as
+     * 0.001 % btc or eth could potentially be a pretty penny." At 10,000 the
+     * finest share expressible was 0.01%; a payer wanting 12.3456% could not
+     * say it, and the frontend refused the line rather than round it silently.
+     * 1,000,000 maps any 4-decimal percentage to a whole number exactly.
+     *
+     * WHY THE FEE SPACE DID NOT. A partner rate is a commercial agreement in
+     * half-percent steps (2.0 / 2.5 / … / 5.0), not a number a payer types.
+     * Changing it would rewrite every registered rate, set_partner.js and the
+     * admin page for no stated need. Reversible later; nothing depends on the
+     * two being different, only on their not being confused.
+     *
+     * HEADROOM. `payout * shares[i]` now multiplies by up to 1e6 instead of
+     * 1e4, so the overflow ceiling drops 100x — from ~1.15e73 to ~1.15e71.
+     * The largest native supply that exists is ~1e27 wei. Not a constraint.
+     */
+    uint256 public constant SHARE_DENOMINATOR = 1_000_000;
 
     /// Absolute ceiling on maxRecipients. The owner may tune below this per
     /// chain; nobody can raise it past here without a redeploy.
@@ -145,7 +200,12 @@ contract DistributeProV3 is Ownable, ReentrancyGuard, Pausable {
     error MaxRecipientsOutOfRange(uint256 given, uint256 limit);
     error ZeroRecipient(uint256 index);
     error ZeroShare(uint256 index);
-    error SharesMustTotal10000(uint256 given);
+    /// ⛔ V3.1 RENAME. Was `SharesMustTotal10000(uint256 given)`. The required
+    /// total is now a PARAMETER rather than a number baked into the error's
+    /// name, so this name can never go stale again the way that one did —
+    /// same rule the repo already applies to reports and deployment records:
+    /// never hand-write a value that can be read from the source of truth.
+    error SharesMustTotalDenominator(uint256 given, uint256 required);
     error ZeroPayout();
     error UnknownPartner(address partner);
     error IncorrectNativeValue(uint256 sent, uint256 required);
@@ -174,7 +234,7 @@ contract DistributeProV3 is Ownable, ReentrancyGuard, Pausable {
         uint256 required;
     }
 
-    constructor(address _houseRecipient, uint256 _maxRecipients) Ownable() {
+    constructor(address _houseRecipient, uint256 _maxRecipients) Ownable(_msgSender()) {
         if (_houseRecipient == address(0)) revert ZeroAddress();
         if (_maxRecipients == 0 || _maxRecipients > MAX_RECIPIENTS_LIMIT) {
             revert MaxRecipientsOutOfRange(_maxRecipients, MAX_RECIPIENTS_LIMIT);
@@ -265,7 +325,7 @@ contract DistributeProV3 is Ownable, ReentrancyGuard, Pausable {
         amounts = new uint256[](n);
         uint256 sent;
         for (uint256 i; i < n; ++i) {
-            uint256 amount = (i == n - 1) ? payout - sent : (payout * shares[i]) / BPS_DENOMINATOR;
+            uint256 amount = (i == n - 1) ? payout - sent : (payout * shares[i]) / SHARE_DENOMINATOR;
             amounts[i] = amount;
             sent += amount;
         }
@@ -457,7 +517,9 @@ contract DistributeProV3 is Ownable, ReentrancyGuard, Pausable {
             if (shares[i] == 0) revert ZeroShare(i);
             totalShares += shares[i];
         }
-        if (totalShares != BPS_DENOMINATOR) revert SharesMustTotal10000(totalShares);
+        if (totalShares != SHARE_DENOMINATOR) {
+            revert SharesMustTotalDenominator(totalShares, SHARE_DENOMINATOR);
+        }
     }
 
     /**
@@ -474,7 +536,7 @@ contract DistributeProV3 is Ownable, ReentrancyGuard, Pausable {
     ) internal returns (uint256 sent) {
         uint256 n = recipients.length;
         for (uint256 i; i < n; ++i) {
-            uint256 amount = (i == n - 1) ? payout - sent : (payout * shares[i]) / BPS_DENOMINATOR;
+            uint256 amount = (i == n - 1) ? payout - sent : (payout * shares[i]) / SHARE_DENOMINATOR;
             sent += amount;
             _sendNative(recipients[i], amount);
         }
@@ -488,7 +550,7 @@ contract DistributeProV3 is Ownable, ReentrancyGuard, Pausable {
     ) internal returns (uint256 sent) {
         uint256 n = recipients.length;
         for (uint256 i; i < n; ++i) {
-            uint256 amount = (i == n - 1) ? payout - sent : (payout * shares[i]) / BPS_DENOMINATOR;
+            uint256 amount = (i == n - 1) ? payout - sent : (payout * shares[i]) / SHARE_DENOMINATOR;
             sent += amount;
             token.safeTransfer(recipients[i], amount);
         }

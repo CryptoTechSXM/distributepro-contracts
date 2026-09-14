@@ -19,7 +19,11 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
-const BPS = 10_000n;
+// ⛔ FEE space, NOT share space. V3.1 moved the SHARE denominator to
+// 1,000,000; the FEE denominator stayed at 10,000. FEE_BPS is only ever used
+// to express a fee RATE as a percentage — see the (was D1) test.
+const FEE_BPS = 10_000n;
+const SHARE_DENOM = 1_000_000n;
 const MAX_RECIPIENTS = 250;
 
 describe("DistributeProV3 — specification", function () {
@@ -52,7 +56,7 @@ describe("DistributeProV3 — specification", function () {
       const { required } = await dp.quote(payout, ethers.ZeroAddress);
       await dp.distributeNative(
         [alice.address, bob.address],
-        [5000, 5000],
+        [500_000, 500_000],
         payout,
         ethers.ZeroAddress,
         { value: required }
@@ -69,7 +73,7 @@ describe("DistributeProV3 — specification", function () {
       await token.approve(dpAddr, required);
 
       expect(await token.balanceOf(dpAddr)).to.equal(0n);
-      await dp.distributeToken(tAddr, [alice.address, bob.address], [7000, 3000], payout, ethers.ZeroAddress);
+      await dp.distributeToken(tAddr, [alice.address, bob.address], [700_000, 300_000], payout, ethers.ZeroAddress);
       expect(await token.balanceOf(dpAddr)).to.equal(0n);
     });
 
@@ -103,7 +107,7 @@ describe("DistributeProV3 — specification", function () {
 
       await dp.distributeNative(
         [alice.address, bob.address, carol.address],
-        [5000, 3000, 2000],
+        [500_000, 300_000, 200_000],
         payout,
         partner.address,
         { value: required }
@@ -125,7 +129,7 @@ describe("DistributeProV3 — specification", function () {
       const { required, houseFee } = await dp.quote(payout, ethers.ZeroAddress);
       await token.approve(dpAddr, required);
 
-      await dp.distributeToken(tAddr, [alice.address, bob.address], [7500, 2500], payout, ethers.ZeroAddress);
+      await dp.distributeToken(tAddr, [alice.address, bob.address], [750_000, 250_000], payout, ethers.ZeroAddress);
 
       expect(await token.balanceOf(alice.address)).to.equal(ethers.parseUnits("750", 6));
       expect(await token.balanceOf(bob.address)).to.equal(ethers.parseUnits("250", 6));
@@ -151,8 +155,8 @@ describe("DistributeProV3 — specification", function () {
       const eighteen = ethers.parseUnits("1000000", 18);
       const q6 = await dp.quote(six, ethers.ZeroAddress);
       const q18 = await dp.quote(eighteen, ethers.ZeroAddress);
-      expect((q6.totalFee * BPS) / six).to.equal((q18.totalFee * BPS) / eighteen);
-      console.log(`      both charged ${Number((q6.totalFee * BPS) / six) / 100}% — V2.1 charged 2% and 0.5%`);
+      expect((q6.totalFee * FEE_BPS) / six).to.equal((q18.totalFee * FEE_BPS) / eighteen);
+      console.log(`      both charged ${Number((q6.totalFee * FEE_BPS) / six) / 100}% — V2.1 charged 2% and 0.5%`);
     });
 
     it("(was D2) there is no caller-supplied total to lie about — amounts come from the shares", async function () {
@@ -168,7 +172,7 @@ describe("DistributeProV3 — specification", function () {
       const payout = ethers.parseEther("1");
       const { required } = await dp.quote(payout, ethers.ZeroAddress);
       await expect(
-        dp.distributeNative([alice.address], [10000], payout, ethers.ZeroAddress, { value: required - 1n })
+        dp.distributeNative([alice.address], [1_000_000], payout, ethers.ZeroAddress, { value: required - 1n })
       ).to.be.revertedWithCustomError(dp, "IncorrectNativeValue");
     });
 
@@ -184,7 +188,7 @@ describe("DistributeProV3 — specification", function () {
       await expect(
         dp.distributeNative(
           [alice.address, wAddr, bob.address],
-          [3334, 3333, 3333],
+          [333_400, 333_300, 333_300],
           payout,
           ethers.ZeroAddress,
           { value: required }
@@ -207,7 +211,7 @@ describe("DistributeProV3 — specification", function () {
       await usdt.approve(dpAddr, required);
 
       await expect(
-        dp.distributeToken(uAddr, [alice.address, bob.address], [6000, 4000], payout, ethers.ZeroAddress)
+        dp.distributeToken(uAddr, [alice.address, bob.address], [600_000, 400_000], payout, ethers.ZeroAddress)
       ).to.not.be.reverted;
 
       expect(await usdt.balanceOf(alice.address)).to.equal(ethers.parseUnits("600", 6));
@@ -221,7 +225,7 @@ describe("DistributeProV3 — specification", function () {
       const { required } = await dp.quote(payout, ethers.ZeroAddress);
 
       await expect(
-        dp.distributeNative([alice.address], [10000], payout, ethers.ZeroAddress, {
+        dp.distributeNative([alice.address], [1_000_000], payout, ethers.ZeroAddress, {
           value: required + ethers.parseEther("0.5"),
         })
       ).to.be.revertedWithCustomError(dp, "IncorrectNativeValue");
@@ -242,7 +246,7 @@ describe("DistributeProV3 — specification", function () {
       // V2.1 failed deep inside the payout loop with an opaque ERC20 error.
       // V3 must fail at the door, with a name that says what is wrong.
       await expect(
-        dp.distributeToken(fAddr, [alice.address], [10000], payout, ethers.ZeroAddress)
+        dp.distributeToken(fAddr, [alice.address], [1_000_000], payout, ethers.ZeroAddress)
       ).to.be.revertedWithCustomError(dp, "FeeOnTransferTokenNotSupported");
     });
 
@@ -253,7 +257,7 @@ describe("DistributeProV3 — specification", function () {
       await expect(
         dp.distributeNative(
           [alice.address, ethers.ZeroAddress],
-          [5000, 5000],
+          [500_000, 500_000],
           payout,
           ethers.ZeroAddress,
           { value: required }
@@ -270,7 +274,7 @@ describe("DistributeProV3 — specification", function () {
   describe("dust — nothing may be left behind", function () {
     it("an indivisible payout still adds up exactly, with the remainder on the last recipient", async function () {
       const payout = 1000000007n; // deliberately prime-ish, does not divide by 3
-      const shares = [3333, 3333, 3334];
+      const shares = [333_300, 333_300, 333_400];
 
       const amounts = await dp.previewAmounts(payout, shares);
       const sum = amounts.reduce((a, b) => a + b, 0n);
@@ -303,7 +307,7 @@ describe("DistributeProV3 — specification", function () {
       const token = await newToken();
       const tAddr = await token.getAddress();
       const payout = 999999n;
-      const shares = [1111, 2222, 6667];
+      const shares = [111_100, 222_200, 666_700];
 
       const expected = await dp.previewAmounts(payout, shares);
       const { required } = await dp.quote(payout, ethers.ZeroAddress);
@@ -317,6 +321,110 @@ describe("DistributeProV3 — specification", function () {
   });
 
   // ═══════════════════════════════════════════════════════════════════════
+  // V3.1 — FOUR-DECIMAL PERCENTAGES
+  //
+  // This block is the whole reason V3.1 exists, so it asserts the CAPABILITY
+  // rather than the constant. Every case here is one V3.0 could not express:
+  // at a denominator of 10,000 the finest share was 0.01%, and the frontend
+  // refused any line finer than that BY NAME rather than rounding it.
+  //
+  // ⛔ These tests must FAIL against a 10,000-denominator contract — that is
+  // what makes them tests. Put SHARE_DENOMINATOR back to 10_000 and they go
+  // red on SharesMustTotalDenominator, because 123456 + 876544 is not 10,000.
+  // ═══════════════════════════════════════════════════════════════════════
+  describe("⛔ V3.1 — shares to four decimal places", function () {
+    it("the chain's own denominator is 1,000,000, and the old name is gone", async function () {
+      expect(await dp.SHARE_DENOMINATOR()).to.equal(SHARE_DENOM);
+
+      // Read off the ABI, not off recollection. If BPS_DENOMINATOR still
+      // existed, a caller written against V3.0 would keep working on a
+      // contract whose shares mean something 100x different — silently.
+      const names = dp.interface.fragments
+        .filter((f) => f.type === "function")
+        .map((f) => f.name);
+      expect(names).to.include("SHARE_DENOMINATOR");
+      expect(names).to.not.include("BPS_DENOMINATOR");
+    });
+
+    it("pays 12.3456% / 87.6544% exactly — a split V3.0 could not express", async function () {
+      const payout = ethers.parseEther("10");
+      const shares = [123_456, 876_544]; // 12.3456% + 87.6544% = 100%
+
+      const { required } = await dp.quote(payout, ethers.ZeroAddress);
+      const before = await Promise.all(
+        [alice, bob].map((s) => ethers.provider.getBalance(s.address))
+      );
+
+      await dp.distributeNative(
+        [alice.address, bob.address],
+        shares,
+        payout,
+        ethers.ZeroAddress,
+        { value: required }
+      );
+
+      const after = await Promise.all(
+        [alice, bob].map((s) => ethers.provider.getBalance(s.address))
+      );
+      expect(after[0] - before[0]).to.equal(ethers.parseEther("1.23456"));
+      expect(after[1] - before[1]).to.equal(ethers.parseEther("8.76544"));
+      expect(await ethers.provider.getBalance(dpAddr)).to.equal(0n);
+      console.log("      12.3456% of 10 ETH = 1.23456 ETH, exact — V3.0 rejected this line");
+    });
+
+    it("one unit is 0.0001% and it still pays something", async function () {
+      // The owner's reason for asking, in his words: "0.001 % btc or eth could
+      // potentially be a pretty penny." At 1 ETH a 0.0001% share is 1e12 wei.
+      const payout = ethers.parseEther("1");
+      const shares = [1, 999_999];
+
+      const amounts = await dp.previewAmounts(payout, shares);
+      expect(amounts[0]).to.equal(1_000_000_000_000n); // 1e12 wei, not zero
+      expect(amounts[0] + amounts[1]).to.equal(payout);
+      console.log(`      finest share on 1 ETH = ${ethers.formatEther(amounts[0])} ETH`);
+    });
+
+    it("an indivisible 4-decimal list pays 4-decimal amounts, dust on the last row", async function () {
+      // Three awkward 4-dp percentages against a payout that divides by none
+      // of them. The hold-nothing rule does not get easier because the
+      // denominator got finer.
+      const payout = 1_000_000_007n;
+      const shares = [333_333, 333_333, 333_334]; // 33.3333 / 33.3333 / 33.3334
+
+      const amounts = await dp.previewAmounts(payout, shares);
+      const sum = amounts.reduce((a, b) => a + b, 0n);
+      console.log(`      ${amounts.map((a) => a.toString()).join(" + ")} = ${sum} (payout ${payout})`);
+
+      // ⛔⛔ THE SUM ALONE IS NOT A TEST OF THE DENOMINATOR, and the first
+      // version of this test asserted nothing else. The LAST recipient
+      // receives `payout - everything already sent`, so the total comes out
+      // exact at ANY denominator — this test passed green on a deliberately
+      // wrong contract when it was written. Same family as the r.addr regex
+      // checks and the stale-state regression test: an assertion that cannot
+      // fail. What the denominator actually decides is the PER-ROW amount:
+      //     1,000,000,007 × 333,333 / 1,000,000 = 333,333,002
+      // At the old 10,000 the same row is 33,333,300,233 — 100x out.
+      expect(amounts[0]).to.equal(333_333_002n);
+      expect(amounts[1]).to.equal(333_333_002n);
+      expect(amounts[2]).to.equal(333_334_003n);
+      expect(sum).to.equal(payout);
+
+      // And it must clear the contract's OWN validation, which is the half
+      // that rejects a four-decimal list outright on V3.0.
+      const { required } = await dp.quote(payout, ethers.ZeroAddress);
+      await expect(
+        dp.distributeNative(
+          [alice.address, bob.address, carol.address],
+          shares,
+          payout,
+          ethers.ZeroAddress,
+          { value: required }
+        )
+      ).to.not.be.reverted;
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
   // Input validation
   // ═══════════════════════════════════════════════════════════════════════
   describe("input validation", function () {
@@ -325,22 +433,22 @@ describe("DistributeProV3 — specification", function () {
     it("shares must total exactly 100%", async function () {
       const { required } = await dp.quote(payout, ethers.ZeroAddress);
       await expect(
-        dp.distributeNative([alice.address, bob.address], [5000, 4000], payout, ethers.ZeroAddress, { value: required })
+        dp.distributeNative([alice.address, bob.address], [500_000, 400_000], payout, ethers.ZeroAddress, { value: required })
       )
-        .to.be.revertedWithCustomError(dp, "SharesMustTotal10000")
-        .withArgs(9000);
+        .to.be.revertedWithCustomError(dp, "SharesMustTotalDenominator")
+        .withArgs(900_000, SHARE_DENOM);
 
       await expect(
-        dp.distributeNative([alice.address, bob.address], [5000, 6000], payout, ethers.ZeroAddress, { value: required })
+        dp.distributeNative([alice.address, bob.address], [500_000, 600_000], payout, ethers.ZeroAddress, { value: required })
       )
-        .to.be.revertedWithCustomError(dp, "SharesMustTotal10000")
-        .withArgs(11000);
+        .to.be.revertedWithCustomError(dp, "SharesMustTotalDenominator")
+        .withArgs(1_100_000, SHARE_DENOM);
     });
 
     it("rejects mismatched arrays, empty lists and a zero payout", async function () {
       const { required } = await dp.quote(payout, ethers.ZeroAddress);
       await expect(
-        dp.distributeNative([alice.address, bob.address], [10000], payout, ethers.ZeroAddress, { value: required })
+        dp.distributeNative([alice.address, bob.address], [1_000_000], payout, ethers.ZeroAddress, { value: required })
       ).to.be.revertedWithCustomError(dp, "ArrayLengthMismatch");
 
       await expect(
@@ -348,14 +456,14 @@ describe("DistributeProV3 — specification", function () {
       ).to.be.revertedWithCustomError(dp, "NoRecipients");
 
       await expect(
-        dp.distributeNative([alice.address], [10000], 0, ethers.ZeroAddress, { value: 0 })
+        dp.distributeNative([alice.address], [1_000_000], 0, ethers.ZeroAddress, { value: 0 })
       ).to.be.revertedWithCustomError(dp, "ZeroPayout");
     });
 
     it("rejects a zero share — a CSV row that would pay nothing", async function () {
       const { required } = await dp.quote(payout, ethers.ZeroAddress);
       await expect(
-        dp.distributeNative([alice.address, bob.address], [10000, 0], payout, ethers.ZeroAddress, { value: required })
+        dp.distributeNative([alice.address, bob.address], [1_000_000, 0], payout, ethers.ZeroAddress, { value: required })
       )
         .to.be.revertedWithCustomError(dp, "ZeroShare")
         .withArgs(1);
@@ -367,7 +475,7 @@ describe("DistributeProV3 — specification", function () {
       await expect(
         dp.distributeNative(
           [alice.address, bob.address, carol.address],
-          [3334, 3333, 3333],
+          [333_400, 333_300, 333_300],
           payout,
           ethers.ZeroAddress,
           { value: required }
@@ -417,12 +525,12 @@ describe("DistributeProV3 — specification", function () {
 
       await dp.pause();
       await expect(
-        dp.distributeNative([alice.address], [10000], payout, ethers.ZeroAddress, { value: required })
+        dp.distributeNative([alice.address], [1_000_000], payout, ethers.ZeroAddress, { value: required })
       ).to.be.reverted;
 
       await dp.unpause();
       await expect(
-        dp.distributeNative([alice.address], [10000], payout, ethers.ZeroAddress, { value: required })
+        dp.distributeNative([alice.address], [1_000_000], payout, ethers.ZeroAddress, { value: required })
       ).to.not.be.reverted;
     });
   });

@@ -1,9 +1,27 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+/**
+ * ⛔⛔ THIS IS V2.1 — THE DEFECTIVE CONTRACT. It is kept ONLY so that
+ * test/V2_1_defects.js can reproduce each audit finding on demand. Over
+ * there, GREEN MEANS THE BUG IS REAL. Never deploy this.
+ *
+ * ⚠️ EDITED 2026-09-13 (V3.1), ONE LINE, AND THE EDIT IS ITSELF THE POINT.
+ * The OpenZeppelin v4 -> v5 migration would not compile this file: v5's
+ * Ownable requires an explicit initialOwner, and `Ownable()` no longer
+ * exists. ▶ THAT IS DEFECT 2.10 OF THE AUDIT HAPPENING IN FRONT OF US —
+ * "OpenZeppelin v5 will break the constructor" was written as a prediction
+ * on 2026-09-11 and is now a measurement.
+ *
+ * The fix is `Ownable(_msgSender())`, which is EXACTLY what v4's no-arg
+ * constructor did (it called _transferOwnership(_msgSender())). So the
+ * deployer is still the owner and NONE of the seven defect behaviours are
+ * touched — the fee taper, the trusted `total`, .transfer(), the stranding,
+ * the burn. Verified by the suite still reproducing all eight.
+ */
 contract DistributePro is Ownable {
     address public feeRecipient;
 
@@ -11,7 +29,7 @@ contract DistributePro is Ownable {
     event DistributedToken(address indexed sender, address indexed token, uint256 totalAmount, uint256 fee, uint256 recipients);
     event FeeApplied(address indexed payer, uint256 amount, uint256 fee, address feeRecipient);
 
-    constructor(address _feeRecipient) Ownable() {
+    constructor(address _feeRecipient) Ownable(_msgSender()) {
         require(_feeRecipient != address(0), "Invalid fee recipient");
         feeRecipient = _feeRecipient;
     }

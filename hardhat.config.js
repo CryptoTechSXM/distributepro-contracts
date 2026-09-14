@@ -33,21 +33,31 @@ module.exports = {
   // session wants faster compiles, try setting viaIR back to false: if it
   // still builds, those fixes were sufficient on their own and this can go.
   solidity: {
-    // ⛔ 0.8.19, LOWERED FROM 0.8.20 ON 2026-09-11 — measured, not preferred.
+    // ⛔⛔ 0.8.20 — RAISED BACK ON 2026-09-13 (V3.1). Read the whole note.
     //
-    // WHY: the BTC20 explorer refused to verify DistributeProV3 twice under
-    // 0.8.20. scripts/probe_verify.js then found the owner's LIVE V1 contract
-    // IS verified there, under v0.8.19+commit.7dd6d404. So the explorer can
-    // verify — its solc list just appears to stop one version short of ours.
+    // It was LOWERED to 0.8.19 on 2026-09-11 because the BTC20 explorer
+    // refused to verify DistributeProV3 under 0.8.20 while the owner's live
+    // V1 contract IS verified there under v0.8.19+commit.7dd6d404. The
+    // inference was "the explorer's solc list stops one version short of
+    // ours". ⚠️ That was a HYPOTHESIS. It cost a redeploy and it was wrong.
     //
-    // Every contract's pragma was moved from ^0.8.20 to ^0.8.19 to match.
-    // Nothing in this repo needs 0.8.20: its headline change was defaulting
-    // the EVM target to Shanghai, which evmVersion below overrides to berlin
-    // regardless, and OpenZeppelin 4.9 requires only ^0.8.0.
+    // MEASURED AFTERWARDS (brief §20.1), by loading the explorer's own
+    // verification form and reading the DOM: its compiler dropdown holds
+    // ZERO options. An explorer with no compilers cannot recompile source,
+    // so it cannot verify at 0.8.19 either. The pin protected nothing.
     //
-    // ⚠️ Do not raise this without re-running scripts/probe_verify.js. The
-    // number that matters is what the EXPLORER has, not what is newest.
-    version: "0.8.19",
+    // WHY IT MOVED: OpenZeppelin v5 requires ^0.8.20 (read off the published
+    // v5.6.1 source). The raise costs nothing here — 0.8.20's headline change
+    // is defaulting evmVersion to Shanghai, and evmVersion below pins berlin
+    // regardless — and deploys #1 and #2 in the ledger were built at 0.8.20
+    // and LANDED ON BTC20 MAINNET, so the combination is already proven on
+    // the oldest chain we target.
+    //
+    // ⚠️ Do not raise it further. 0.8.20 is the minimum OZ v5 accepts.
+    // ⚠️ And do not re-lower it hoping for verification: re-check by LOADING
+    // THE FORM (scripts/probe_verify.js plus the page itself) before
+    // believing any version helps.
+    version: "0.8.20",
     settings: {
       // ⚠️ FLIPPED TO FALSE 2026-09-11 — this is a TEST, not a settled change.
       // If the compile fails with "Stack too deep", put it straight back to

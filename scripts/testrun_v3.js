@@ -6,7 +6,7 @@
 // RUN (dry run, spends nothing):
 //   npx hardhat run scripts/testrun_v3.js --network btc20
 // RUN (for real):
-//   $env:CONFIRM="yes"; npx hardhat run scripts/testrun_v3.js --network btc20
+//   $env:CONFIRM="testrun-native"; npx hardhat run scripts/testrun_v3.js --network btc20
 //
 // ─────────────────────────────────────────────────────────────────────────
 // WHY THIS EXISTS
@@ -34,23 +34,52 @@
 //   - DUST GOES TO THE LAST RECIPIENT (brief 7.3). 3333/3333/3334 on an
 //     indivisible payout is exactly the case where the remainder appears.
 //
-// ⚠️ HONEST LIMITATION: paying yourself does not prove a payment to a
-// stranger's wallet arrives, only that the contract's logic executes on this
-// chain. The code cannot distinguish them, but say so rather than overclaim.
-// Set RECIPIENTS to real addresses when you want that stronger evidence.
+// ⚠️ HONEST LIMITATION OF THE DEFAULT: paying yourself does not prove a
+// payment to a stranger's wallet arrives, only that the contract's logic
+// executes on this chain. The code cannot distinguish them, but say so rather
+// than overclaim. Set RECIPIENTS to real addresses for the stronger evidence.
+//
+// ✅ AND THAT WAS DONE — 2026-09-12, tx 0xf6174203…cfa72aad, block 30,501,437.
+// Three recipients, none of them the sender, TWO of them accounts that did not
+// exist on this chain at all (balance measured at zero immediately before).
+// Each received its exact share; the sender's delta matched to the wei; the
+// contract held zero before and after. ▶ The limitation above now applies only
+// when RECIPIENTS is left unset. See brief §19.4.
 //
 // Override with env vars:
 //   PAYOUT=0.001                  the amount recipients collectively receive
 //   RECIPIENTS=0xaaa,0xbbb,0xccc  comma-separated; SHARES must match in count
-//   SHARES=3333,3333,3334         basis points, must total exactly 10000
+//   SHARES=333300,333300,333400   share units, must total exactly 1000000
+//
+// ─────────────────────────────────────────────────────────────────────────
+// ▶ 2026-09-12 — THIS SCRIPT IS NOW THE INSTRUMENT FOR THE STRANGER RUN.
+//
+// The limitation stated above is the LAST claim on the native send path that
+// rests on an argument rather than a measurement. RECIPIENTS closes it, and
+// the run is only worth anything if the recipients are NOT the sender. Two
+// additions were made for it, both before it was run:
+//   - the BEFORE-balances are printed, so a recipient measured at zero and
+//     then holding its exact share is evidence rather than an inference;
+//   - the gas is ESTIMATED before anything is sent, so the receipt can be
+//     checked against a prediction instead of described after the fact.
+// Neither changes what is sent. Both are in the dry-run path, which spends
+// nothing — always run the dry run first and read it.
 
 const fs = require("fs");
 const path = require("path");
 const hre = require("hardhat");
+const {
+  readShareDenominator,
+  checkShareTotal,
+} = require("./utils/share_denominator");
+const { reportEnv, armed } = require("./utils/session_env");
 const { ethers } = hre;
 
 const DEFAULT_PAYOUT = "0.001";
-const DEFAULT_SHARES = [3333, 3333, 3334];
+// ⛔ V3.1 SHARE UNITS, not basis points. 333300 = 33.3300%.
+// The denominator itself is NEVER written down here — it is read off
+// the contract at run time (scripts/utils/share_denominator.js).
+const DEFAULT_SHARES = [333300, 333300, 333400];
 
 function line(c = "─", n = 66) {
   return c.repeat(n);
@@ -71,6 +100,9 @@ function pad(s, n) {
 }
 
 async function main() {
+  // ⛔ Say what this run inherited BEFORE it says what it decided.
+  reportEnv(["CONFIRM", "PAYOUT", "RECIPIENTS", "SHARES"]);
+
   const netName = hre.network.name;
 
   say("");
@@ -114,14 +146,64 @@ async function main() {
   let recipients;
   let shares;
   if (process.env.RECIPIENTS) {
-    recipients = process.env.RECIPIENTS.split(",").map((r) => ethers.getAddress(r.trim()));
-    shares = (process.env.SHARES || "")
+    // ⛔ VALIDATE EVERY ENTRY AND NAME THE BAD ONE. Added 2026-09-12, after a
+    // run with placeholder addresses still in RECIPIENTS answered with a raw
+    // ethers stack trace — `TypeError: invalid address` and eight lines of
+    // node internals — instead of saying which entry was wrong. This script's
+    // whole job is that somebody pastes addresses into it, so a bad paste is
+    // the EXPECTED input, not an exceptional one. Same rule the frontend's
+    // problems list already follows: every bad line, with its position.
+    const rawRecipients = process.env.RECIPIENTS.split(",")
+      .map((r) => r.trim())
+      .filter(Boolean);
+    if (!rawRecipients.length) fail("RECIPIENTS was set but is empty.");
+
+    const problems = [];
+    recipients = [];
+    rawRecipients.forEach((r, i) => {
+      try {
+        const a = ethers.getAddress(r);
+        if (a === ethers.ZeroAddress) {
+          problems.push(`entry ${i + 1}: the zero address — the contract rejects it`);
+          return;
+        }
+        recipients.push(a);
+      } catch (_) {
+        problems.push(`entry ${i + 1}: "${r}" is not a valid address`);
+      }
+    });
+
+    const rawShares = (process.env.SHARES || "")
       .split(",")
-      .filter(Boolean)
-      .map((s) => Number(s.trim()));
-    if (!shares.length) fail("RECIPIENTS was set but SHARES was not.");
-    if (shares.length !== recipients.length) {
-      fail(`RECIPIENTS has ${recipients.length} entries but SHARES has ${shares.length}.`);
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!rawShares.length) problems.push("SHARES was not set, but RECIPIENTS was");
+    shares = [];
+    rawShares.forEach((s, i) => {
+      if (!/^\d+$/.test(s)) {
+        problems.push(`SHARES entry ${i + 1}: "${s}" is not a whole number of share units`);
+        return;
+      }
+      shares.push(Number(s));
+    });
+
+    if (rawShares.length && rawRecipients.length !== rawShares.length) {
+      problems.push(
+        `RECIPIENTS has ${rawRecipients.length} entries but SHARES has ${rawShares.length} — they must match one for one`
+      );
+    }
+
+    if (problems.length) {
+      say("");
+      say("  ⛔ RECIPIENTS / SHARES could not be read. Nothing was sent.");
+      say("");
+      for (const p of problems) say(`     • ${p}`);
+      say("");
+      say("  Expected shape (one share unit per recipient, totalling the");
+      say("  contract's own SHARE_DENOMINATOR — 1000000 on V3.1):");
+      say('     $env:RECIPIENTS="0xabc…,0xdef…,0x123…"');
+      say('     $env:SHARES="333300,333300,333400"');
+      fail(`${problems.length} problem(s) in RECIPIENTS/SHARES — fix them and run again.`);
     }
   } else {
     // Default: pay the sender, three times. See the header.
@@ -129,13 +211,14 @@ async function main() {
     shares = DEFAULT_SHARES;
   }
 
-  const shareTotal = shares.reduce((a, b) => a + b, 0);
-  if (shareTotal !== 10000) {
-    fail(`Shares total ${shareTotal} basis points; the contract requires exactly 10000.`);
-  }
+  // ⛔ The denominator comes from the CHAIN, never from this file. It also
+  // REFUSES a V3.0 contract by name rather than adapting to it — see the
+  // header of scripts/utils/share_denominator.js for why that matters.
+  const shareDenom = await readShareDenominator(address, dp, say, fail);
+  const shareTotal = checkShareTotal(shares, shareDenom, say, fail);
   say(`        payout     ${ethers.formatEther(payout)}`);
   say(`        recipients ${recipients.length}`);
-  say(`        shares     ${shares.join(" / ")} bps  (= ${shareTotal / 100}%)`);
+  say(`        shares     ${shares.join(" / ")}  (= ${(Number(shareTotal) * 100 / Number(shareDenom)).toFixed(4)}%)`);
 
   // ── Ask the CONTRACT what it will charge. Not our own arithmetic. ──────
   say("  [3/6] asking the contract for its quote ...");
@@ -172,25 +255,98 @@ async function main() {
   for (const a of unique) before[a] = await ethers.provider.getBalance(a);
   const contractBefore = await ethers.provider.getBalance(address);
 
+  // ⛔ PRINT THE BEFORE-BALANCES. Added 2026-09-12 for the stranger-recipient
+  // run. The end-of-run table shows deltas, and a delta is only as convincing
+  // as what it started from: a recipient measured at ZERO before, holding its
+  // exact share after, cannot be explained by anything the sender already had.
+  // It also tells us which recipients are brand-new accounts, which is the
+  // expensive gas case (~34,800 vs ~9,451 for one that already exists).
+  say("");
+  say("  balances BEFORE — a recipient at zero makes its delta unarguable:");
+  say(`     ${pad("address", 46)}${pad("balance before", 24)}role`);
+  say("     " + "-".repeat(96));
+  for (const a of unique) {
+    const roles = [];
+    if (a === signer.address) roles.push("SENDER");
+    if (a === onChainHouse) roles.push("house");
+    const n = recipients.filter((r) => r === a).length;
+    if (n) roles.push(n > 1 ? `recipient ×${n}` : "recipient");
+    const fresh =
+      before[a] === 0n ? "  ⚑ ZERO — account does not exist yet, costs ~25,000 more gas to pay" : "";
+    say(`     ${pad(a, 46)}${pad(ethers.formatEther(before[a]), 24)}${roles.join(", ")}${fresh}`);
+  }
   say("");
   say(`        contract balance before: ${ethers.formatEther(contractBefore)}` +
       (contractBefore === 0n ? "  ✓ holds nothing" : "  ⚠️ NOT ZERO"));
 
+  // ── PREDICT the gas before any is spent. Added 2026-09-12. ─────────────
+  // §18.2's standard: estimateGas predicted the deploy to the unit. A number
+  // that exists BEFORE the receipt is a prediction; the same number read
+  // afterwards is just a description. eth_estimateGas signs nothing.
+  let gasEstimate = null;
+  try {
+    gasEstimate = await dp.distributeNative.estimateGas(recipients, shares, payout, partner, {
+      value: required,
+    });
+    say(`        gas estimate:            ${gasEstimate}  ← predicted BEFORE sending`);
+  } catch (e) {
+    const m = (e.shortMessage || e.message || String(e)).replace(/\s+/g, " ").slice(0, 90);
+    say(`        gas estimate:            unavailable — ${m}`);
+  }
+
+  // ── Can the sender actually cover it? Better to find out in the dry run. ─
+  let gasPriceNow = 0n;
+  try {
+    gasPriceNow = (await ethers.provider.getFeeData()).gasPrice || 0n;
+  } catch (_) {
+    gasPriceNow = 0n;
+  }
+  const gasAllow = (gasEstimate || 250000n) * (gasPriceNow || 1000000000n);
+  const need = required + gasAllow;
+  const senderHas = before[signer.address];
+  say(`        sender needs:            ${ethers.formatEther(need)}  (send + gas allowance)`);
+  say(`        sender has:              ${ethers.formatEther(senderHas)}` +
+      (senderHas >= need ? "  ✓" : "  ⛔ NOT ENOUGH"));
+  if (senderHas < need) {
+    fail(
+      `The sending wallet holds ${ethers.formatEther(senderHas)} but needs about ` +
+        `${ethers.formatEther(need)}. Fund it or lower PAYOUT.`
+    );
+  }
+
   // ── Gate. ──────────────────────────────────────────────────────────────
   say("");
   say("  [5/6] checking confirmation ...");
-  if (process.env.CONFIRM !== "yes") {
+  if (!armed("CONFIRM", "testrun-native")) {
     say("");
     say(line());
     say("  DRY RUN — nothing was sent.");
     say("");
     say(`  This would send ${ethers.formatEther(required)} and pay it out as above.`);
-    say(`  True cost to you: gas only, because every leg returns to your wallet`);
-    say(`  (unless you overrode RECIPIENTS).`);
+    // ⛔ SAY WHAT IS TRUE OF THIS RUN, not what is usually true. Corrected
+    // 2026-09-12: this used to read "gas only, because every leg returns to
+    // your wallet (unless you overrode RECIPIENTS)" on EVERY run — including
+    // runs that were paying other wallets, where the payout genuinely leaves.
+    // The caveat was in the sentence, but the headline said the opposite of
+    // the case in front of the reader, on the one line that answers "what
+    // does this cost me". Same defect family as the frontend's fabricated fee
+    // reason: a true-sounding statement that is not true of THIS case.
+    const outsiders = recipients.filter((r) => r !== signer.address);
+    if (outsiders.length === 0) {
+      say(`  True cost to you: GAS ONLY — every recipient is your own wallet, so`);
+      say(`  the payout and both fee legs come straight back.`);
+    } else {
+      const leaving = amounts
+        .filter((_, i) => recipients[i] !== signer.address)
+        .reduce((a, b) => a + b, 0n);
+      say(`  True cost to you: gas, PLUS ${ethers.formatEther(leaving)} that genuinely`);
+      say(`  LEAVES for ${outsiders.length} wallet(s) that are not the sender. The house fee`);
+      say(`  returns only because the house recipient is this wallet.`);
+    }
     say("");
     say("  To run it for real:");
     say("");
-    say(`     $env:CONFIRM="yes"; npx hardhat run scripts/testrun_v3.js --network ${netName}`);
+    say(`     $env:CONFIRM="testrun-native"; npx hardhat run scripts/testrun_v3.js --network ${netName}`);
     say(line());
     say("");
     process.exit(0);

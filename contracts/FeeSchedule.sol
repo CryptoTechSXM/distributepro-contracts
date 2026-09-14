@@ -1,26 +1,32 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.20;
 
-// ⛔ SOLC PINNED TO 0.8.19, NOT 0.8.20 — AND THE REASON IS MEASURED.
+// ⛔⛔ SOLC 0.8.20 — RAISED FROM 0.8.19 ON 2026-09-13 (V3.1). THE REASON THE
+// OLD PIN EXISTED IS MEASURED DEAD, AND THAT IS WHY THIS IS ALLOWED.
 //
-// The BTC20 explorer (scan.bitcoincode.technology, an old Blockscout) REFUSED
-// to verify this contract twice under 0.8.20 — once with viaIR and once
-// without — always "Fail - Unable to verify".
+// THE OLD PIN, AND WHY IT LOOKED RIGHT. On 2026-09-11 the BTC20 explorer
+// refused to verify this contract under 0.8.20, while the owner's LIVE V1
+// contract IS verified there under v0.8.19+commit.7dd6d404. The whole repo
+// was dropped to 0.8.19 to match. ⚠️ That inference — "the explorer's
+// compiler list stops one version short of ours" — was a HYPOTHESIS, and the
+// redeploy that tested it failed identically.
 //
-// scripts/probe_verify.js then measured the decisive fact: the owner's LIVE V1
-// contract IS verified on that explorer, under v0.8.19+commit.7dd6d404. So
-// verification works there; the explorer's compiler list simply appears to
-// stop at 0.8.19. One version short.
+// WHAT ACTUALLY SETTLED IT (brief §20.1): the explorer's own verification
+// form was loaded and read. Its compiler dropdown is EMPTY — zero options in
+// the DOM, still zero after waiting for an async load. An explorer with no
+// compilers cannot recompile source, so it cannot verify anything at ANY
+// version. V1's verified status is a relic from when it still had compilers.
+// ▶ The pin bought nothing. It never had.
 //
-// That also retires the viaIR theory. viaIR was never the cause — two
-// deployments, with and without it, failed identically. The redeploy that
-// tested it was not wasted (it proved viaIR is unnecessary: 73 tests pass
-// without it) but the verification reasoning behind it was wrong.
+// WHY IT MOVED NOW: OpenZeppelin v5 requires ^0.8.20 — read off the published
+// v5.6.1 source, not recalled. And the raise is free here: 0.8.20's headline
+// change is defaulting the EVM target to Shanghai, which hardhat.config.js
+// overrides to berlin regardless. ⛔ Better than free — deploys #1 and #2 in
+// the ledger were BUILT AT 0.8.20 AND LANDED ON BTC20 MAINNET, so this exact
+// compiler-and-chain combination is already proven, not merely expected.
 //
-// ⚠️ DO NOT RAISE THIS PRAGMA back to ^0.8.20 without re-measuring what the
-// explorer supports. Nothing here needs 0.8.20: its only notable change was
-// defaulting the EVM target to Shanghai, which this repo overrides to berlin
-// anyway (see hardhat.config.js), and OpenZeppelin 4.9 requires only ^0.8.0.
+// ⚠️ DO NOT RAISE IT FURTHER. 0.8.20 is the minimum OZ v5 accepts; anything
+// newer buys nothing measured, and every version costs a build cycle to test.
 
 /**
  * FeeSchedule — the owner's V3 fee model, as executable code.
@@ -82,7 +88,24 @@ library FeeSchedule {
     /// Crypto Counsel's guaranteed minimum share.
     uint256 internal constant HOUSE_FLOOR_BPS = 200; // 2.0%
 
-    uint256 internal constant BPS_DENOMINATOR = 10_000;
+    /**
+     * ⛔⛔ V3.1 RENAME, 2026-09-13 — was `BPS_DENOMINATOR`, VALUE UNCHANGED.
+     *
+     * DistributeProV3 also had a constant called `BPS_DENOMINATOR`. The two
+     * were never used together, so V3.0 was correct — but they measure
+     * different things, and a single confident rename by a future session
+     * would have broken the fee model silently while every test stayed green.
+     *
+     *   FEE space (here)       10,000 = 100%      200 = the 2% floor
+     *   SHARE space (V3.1)  1,000,000 = 100%    1 unit = 0.0001%
+     *
+     * ⛔ THIS ONE DID NOT CHANGE VALUE AND MUST NOT BE "MADE CONSISTENT" WITH
+     * THE OTHER. Every partner rate ever registered on-chain, every figure in
+     * the owner's fee table, set_partner.js, admin.html and the site copy are
+     * all in this 10,000 space. Changing it is a commercial decision, not a
+     * tidy-up, and nothing has asked for it.
+     */
+    uint256 internal constant FEE_BPS_DENOMINATOR = 10_000;
 
     error TotalFeeOutOfRange(uint256 totalBps);
 
@@ -121,8 +144,8 @@ library FeeSchedule {
     {
         (, uint256 partnerBps) = splitBps(totalBps);
 
-        totalFee = (payout * totalBps) / BPS_DENOMINATOR;
-        partnerFee = (payout * partnerBps) / BPS_DENOMINATOR;
+        totalFee = (payout * totalBps) / FEE_BPS_DENOMINATOR;
+        partnerFee = (payout * partnerBps) / FEE_BPS_DENOMINATOR;
         houseFee = totalFee - partnerFee; // remainder, so nothing is left behind
     }
 }
