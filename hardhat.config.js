@@ -1,6 +1,17 @@
 require("dotenv").config();
 require("@nomicfoundation/hardhat-toolbox");
 
+// ✅ MEASURED 2026-09-14 (session 13) — THE CONTAINER CAN COMPILE THIS REPO.
+// Opt-in: DPB_LOCAL_SOLC=1 makes hardhat use the `solc` npm package's bundled
+// Emscripten compiler instead of downloading one from
+// binaries.soliditylang.org, which org egress blocks (403 on list.json, so
+// hardhat dies before compiling a line). Unset, nothing changes — the laptop
+// keeps using its downloaded compiler.
+// PROVEN, not assumed: `npx hardhat compile` produced bytecode BYTE-IDENTICAL
+// to this repo's own artifacts (13,972 / 12,896 chars, same sha256, same ABI),
+// and `npx hardhat test` ran 77 passing in 19s. See brief §22.7g.
+require("./solc-local");
+
 const PRIVATE_KEY = process.env.PRIVATE_KEY || "0x00";
 
 module.exports = {
